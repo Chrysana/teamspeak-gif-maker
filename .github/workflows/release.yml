@@ -85,6 +85,7 @@ jobs:
           P="pkg/$PKG"
           mkdir -p "$P/bin/ffmpeg" "$P/bin/gifsicle" "$P/bin/python"
           cp make_gif.py tui.py "Make GIF.bat" README.md LICENSE "$P/"
+          cp -r docs "$P/"  # images used by README.md
 
           7z x -y -odl/ffmpeg dl/ffmpeg/*.zip > /dev/null
           ffdir=$(ls -d dl/ffmpeg/*/ | head -1)
