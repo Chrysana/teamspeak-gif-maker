@@ -15,6 +15,7 @@ Usage:
 
 import argparse
 import json
+import operator
 import re
 import shutil
 import subprocess
@@ -157,6 +158,69 @@ def default_output(src: Path) -> Path:
     return out
 
 
+def detect_loop(src: Path, info: dict, start=None, end=None, duration=None) -> dict | None:
+    """Find the shortest cycle the clip repeats (e.g. an idle animation played 2.5x).
+
+    Compares tiny greyscale thumbnails: offset P is a loop if the first ~0.5s of
+    frames match the frames P later about as closely as consecutive frames match
+    each other, so cutting the clip to P frames leaves an invisible seam.
+    """
+    w = 64
+    h = max(2, round(w * info["height"] / info["width"]))
+    cmd = [str(FFMPEG), "-v", "error"]
+    if start:
+        cmd += ["-ss", start]
+    if end:
+        cmd += ["-to", end]
+    if duration:
+        cmd += ["-t", duration]
+    cmd += ["-i", str(src), "-an", "-vf", f"scale={w}:{h}:flags=area,format=gray",
+            "-fps_mode", "passthrough", "-frames:v", "3000", "-f", "rawvideo", "-"]
+    data = subprocess.run(cmd, capture_output=True, check=True).stdout
+    size = w * h
+    frames = [data[i:i + size] for i in range(0, len(data) - size + 1, size)]
+    n = len(frames)
+    fps = info["fps"]
+    if n < 20:
+        return None
+
+    def diff(a: bytes, b: bytes) -> float:
+        return sum(map(abs, map(operator.sub, a, b))) / size
+
+    def peak(a: bytes, b: bytes) -> int:
+        return max(map(abs, map(operator.sub, a, b)))
+
+    steps = sorted(diff(frames[i], frames[i + 1]) for i in range(n - 1))
+    step = steps[len(steps) // 2]                 # typical frame-to-frame change
+    peaks = sorted(peak(frames[i], frames[i + 1]) for i in range(n - 1))
+    peak_limit = 3 * peaks[int(len(peaks) * 0.95)] + 16  # well above normal local change
+    window = max(3, min(round(fps / 2), n // 4))  # compare ~0.5s of frames
+    min_period = max(2, round(fps / 2))           # ignore cycles under ~0.5s
+    scores = {
+        period: sum(diff(frames[i], frames[i + period]) for i in range(window)) / window
+        for period in range(min_period, n - window + 1)
+    }
+    if not scores:
+        return None
+    typical = sorted(scores.values())[len(scores) // 2]
+    limit = max(1.5 * step, 0.5)
+    candidates = [q for q in sorted(scores) if scores[q] <= limit and scores[q] <= typical / 2]
+    for period in candidates:
+        while period + 1 in scores and scores[period + 1] < scores[period]:
+            period += 1  # settle on the best-matching frame
+        if n < period * 1.2:
+            break  # less than ~one extra cycle: nothing worth trimming
+        # The whole clip must repeat, not just its first half second; otherwise a
+        # mostly-still clip with one event (a blink) could be cut short.
+        # A local event (a blink) barely moves the average, so also check the
+        # largest single-pixel change against normal frame-to-frame changes.
+        overlap = [diff(frames[i], frames[i + period]) for i in range(n - period)]
+        worst = max(peak(frames[i], frames[i + period]) for i in range(n - period))
+        if sum(overlap) / len(overlap) <= limit and worst <= peak_limit:
+            return {"frames": period, "seconds": period / fps, "cycles": n / period}
+    return None
+
+
 def convert(src: Path, args) -> Path:
     if not src.is_file():
         raise FileNotFoundError("file not found")
@@ -176,6 +240,18 @@ def convert(src: Path, args) -> Path:
     if out.resolve() == src.resolve():
         raise ValueError("output path is the input file; choose a different --output")
 
+    end, duration = args.end, args.duration
+    if args.loop:
+        lp = detect_loop(src, info, args.start, args.end, args.duration)
+        if lp:
+            # keep frames [0, period): the next frame would be the start again
+            duration = f"{(lp['frames'] - 0.5) / info['fps']:.4f}"
+            end = None
+            print(f"  loop: {lp['seconds']:.2f}s cycle repeats {lp['cycles']:.1f}x"
+                  " -> keeping one loop")
+        else:
+            print("  loop: no repeating cycle found, keeping the whole clip")
+
     print(f"{src.name}: {info['width']}x{info['height']} @ {info['fps']:g}fps"
           f" -> GIF @ {fps:g}fps, {args.colors} colours, dither {args.dither}"
           + (f", lossy {args.lossy}" if args.lossy else "")
@@ -191,10 +267,10 @@ def convert(src: Path, args) -> Path:
               "-sws_flags", "lanczos+accurate_rnd+full_chroma_int"]
         if args.start:
             ff += ["-ss", args.start]
-        if args.end:
-            ff += ["-to", args.end]
-        if args.duration:
-            ff += ["-t", args.duration]
+        if end:
+            ff += ["-to", end]
+        if duration:
+            ff += ["-t", duration]
         ff += ["-i", str(src)]
         ff += ["-an", "-lavfi",
                build_filter(fps, args.size, args.square, args.colors, args.dither, slowdown),
@@ -260,6 +336,22 @@ def interactive(args) -> None:
     is_time = lambda a: a == "" or bool(TIME_RE.match(a))
     args.start = ask("  Start at: ", is_time) or None
     args.duration = ask("  Length:   ", is_time) or None
+
+    yes_no = lambda a: a.lower() in ("", "y", "yes", "n", "no")
+    src = args.inputs[0]
+    if len(args.inputs) == 1 and src.is_file():
+        try:
+            lp = detect_loop(src, probe(src), args.start, None, args.duration)
+        except Exception:
+            lp = None
+        if lp:
+            print(f"\n  This clip loops: a {lp['seconds']:.2f}s cycle repeats {lp['cycles']:.1f}x."
+                  f" Keeping one loop makes the GIF ~{1 - 1 / lp['cycles']:.0%} smaller.")
+            args.loop = ask("  Keep just one loop? [Y/n]: ", yes_no).lower() in ("", "y", "yes")
+    elif len(args.inputs) > 1:
+        print()
+        args.loop = ask("  Trim clips that repeat to a single loop? [y/N]: ",
+                        yes_no).lower() in ("y", "yes")
     print()
 
 
@@ -286,6 +378,8 @@ def main() -> int:
     p.add_argument("--faux60", action="store_true",
                    help="for sources over 50fps: keep every frame for perfectly smooth motion,"
                         " playing slower (60fps source -> 83%% speed)")
+    p.add_argument("--loop", action="store_true",
+                   help="if the clip repeats (e.g. an idle animation), keep a single loop")
     p.add_argument("--square", action="store_true", help="center-crop to a square before scaling")
     p.add_argument("--start", help="start time, e.g. 3.5 or 00:00:03.5")
     p.add_argument("--end", help="end time (in source timeline)")

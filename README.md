@@ -63,6 +63,7 @@ python make_gif.py --help                          # all options
 | `--faux60` | for sources over 50 fps: keep every frame for perfectly smooth motion, playing slower (60 fps source -> 83% speed) |
 | `--force60` | non-standard: allow up to 60 fps using mixed 1/100 s and 2/100 s frame delays (see below) |
 | `-s, --size N` | max width/height in px (default 300) |
+| `--loop` | if the clip repeats (e.g. an idle animation played 2.5 times), keep a single loop. The drag-and-drop flow detects this and asks |
 | `--square` | centre-crop to a square before scaling |
 | `--colors`, `--dither`, `--lossy` | override the preset's palette size, dithering and gifsicle lossy level |
 | `-o, --output` | output path (single input only) |
@@ -78,7 +79,7 @@ python make_gif.py --help                          # all options
 
 **What actually controls file size**, from most to least effective:
 
-1. **Clip length.** Size scales almost linearly with duration. Trim to the part that loops.
+1. **Clip length.** Size scales almost linearly with duration. Trim to the part that loops; for clips that repeat, `--loop` (or the drag-and-drop prompt) finds the cycle automatically.
 2. **Frame rate.** A 60 fps clip at 30 fps is roughly a third smaller.
 3. **Content.** Camera movement, noise and grain are expensive; still backgrounds are almost free.
 4. **Preset.**
@@ -98,6 +99,7 @@ Design notes, all based on testing against real TeamSpeak 6 clients:
 - **Playback speed matches the source.** GIF frame delays are stored in 1/100 s, so 50 fps is the fastest rate that can be represented exactly. Faster sources are resampled to 50 fps rather than kept frame-for-frame, which would make the GIF play slower than the source.
 - **`--faux60` trades speed for smoothness.** It keeps every frame of a 60 fps clip, each with a plain 2/100 s delay, so motion is perfectly even and TeamSpeak plays it correctly, but the clip runs at 83% speed (20% longer). It's also in the drag-and-drop menu as option 5.
 - **`--force60` is opt-in.** 60 fps can be averaged by alternating 2/100 s and 1/100 s delays. The timing is correct, but browsers and many viewers slow 1/100 s frames down to about 10/100 s, so it can stutter. **TeamSpeak 6 plays these GIFs very slowly**, so don't use it for avatars; it's kept for other viewers that honour short delays.
+- **Loop detection** compares small thumbnails of every frame to find the shortest cycle the clip repeats, and only accepts it if the cut-off point blends back into the start about as smoothly as two normal consecutive frames. If a clip repeats only approximately, a brief moment that happens in a later repeat only (e.g. a single blink) may be lost, so check the result.
 - **Scaling happens before colour reduction.** Resizing an already-quantised GIF re-dithers it and loses quality.
 - **Heavy `--lossy` is avoided.** gifsicle's lossy mode at high levels causes obvious noise and streaks; only a light level is used, and only in the small presets.
 
