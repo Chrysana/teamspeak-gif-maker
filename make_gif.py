@@ -44,6 +44,10 @@ GIFSICLE = find_tool("gifsicle", "gifsicle")
 # GIF frame delays are whole 1/100ths of a second, so 50fps (2/100s) is the
 # fastest rate that can be stored exactly. Faster sources are resampled to this.
 MAX_GIF_FPS = 50
+# --force60: keep up to 60fps using alternating 2/100s and 1/100s delays. Correct on
+# paper, but most viewers (browsers, Chromium-based UIs) slow 1/100s frames to
+# 10/100s, so playback may stutter.
+FORCE60_FPS = 60
 
 DITHERS = {"none": "none", "atkinson": "atkinson", "floyd": "floyd_steinberg",
            "sierra": "sierra2_4a", "bayer": "bayer:bayer_scale=4"}
@@ -137,7 +141,10 @@ def convert(src: Path, args) -> Path:
     if not src.is_file():
         raise FileNotFoundError("file not found")
     info = probe(src)
-    fps = args.fps or min(info["fps"], PRESETS[args.preset][3])
+    cap = PRESETS[args.preset][3]
+    if args.force60 and cap == MAX_GIF_FPS:
+        cap = FORCE60_FPS
+    fps = args.fps or min(info["fps"], cap)
     out = Path(args.output) if args.output else src.with_suffix(".gif")
     if out.resolve() == src.resolve():
         # Input is already a GIF: never overwrite the file we're reading from.
@@ -146,6 +153,9 @@ def convert(src: Path, args) -> Path:
     print(f"{src.name}: {info['width']}x{info['height']} @ {info['fps']:g}fps"
           f" -> GIF @ {fps:g}fps, {args.colors} colours, dither {args.dither}"
           + (f", lossy {args.lossy}" if args.lossy else ""))
+    if fps > MAX_GIF_FPS:
+        print("  note: --force60 uses 1/100s frame delays, which many viewers slow down;"
+              " if it stutters, drop --force60")
 
     with tempfile.TemporaryDirectory() as tmp:
         raw = Path(tmp) / "raw.gif"
@@ -239,6 +249,9 @@ def main() -> int:
     p.add_argument("--fps", type=float,
                    help=f"override frame rate (default: match source, capped at {MAX_GIF_FPS},"
                         " or 30 for the smallest preset)")
+    p.add_argument("--force60", action="store_true",
+                   help="non-standard: allow up to 60fps using mixed 1/100s and 2/100s frame"
+                        " delays. Many viewers slow 1/100s frames down, so it may stutter")
     p.add_argument("--square", action="store_true", help="center-crop to a square before scaling")
     p.add_argument("--start", help="start time, e.g. 3.5 or 00:00:03.5")
     p.add_argument("--end", help="end time (in source timeline)")
@@ -258,8 +271,10 @@ def main() -> int:
     args.lossy = lossy if args.lossy is None else args.lossy
     if not 2 <= args.colors <= 256:
         p.error("--colors must be 2-256")
-    if args.fps is not None and not 0 < args.fps <= MAX_GIF_FPS:
-        p.error(f"--fps must be between 0 and {MAX_GIF_FPS}")
+    fps_limit = FORCE60_FPS if args.force60 else MAX_GIF_FPS
+    if args.fps is not None and not 0 < args.fps <= fps_limit:
+        p.error(f"--fps must be between 0 and {fps_limit}"
+                + ("" if args.force60 else " (up to 60 with --force60)"))
     missing = [n for n, exe in (("ffmpeg", FFMPEG), ("ffprobe", FFPROBE),
                                 ("gifsicle", GIFSICLE)) if not exe]
     if missing:
