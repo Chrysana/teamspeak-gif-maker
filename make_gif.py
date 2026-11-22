@@ -200,14 +200,30 @@ def build_filter(fps: float, size: int, square: bool, colors: int, dither: str,
     return ",".join(parts)
 
 
-def default_output(src: Path, folder: Path | None = None) -> Path:
-    """<name>_<date>_<time>.gif next to the source (or in folder); never an existing file."""
+TEAMSPEAK_MAX_SIZE = 300
+
+
+def output_label(args) -> str:
+    """Settings part of the file name: the preset, plus anything non-default."""
+    label = args.preset
+    if args.faux60:
+        label += "-smooth"
+    if args.force60:
+        label += "-force60"
+    if args.size != TEAMSPEAK_MAX_SIZE:
+        label += f"-{args.size}px"
+    return label
+
+
+def default_output(src: Path, folder: Path | None = None, label: str = "") -> Path:
+    """<name>_<label>_<date>_<time>.gif next to the source (or in folder); never an existing file."""
     folder = folder or src.parent
     stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    out = folder / f"{src.stem}_{stamp}.gif"
+    base = f"{src.stem}_{label}_{stamp}" if label else f"{src.stem}_{stamp}"
+    out = folder / f"{base}.gif"
     n = 2
     while out.exists():
-        out = folder / f"{src.stem}_{stamp}-{n}.gif"
+        out = folder / f"{base}-{n}.gif"
         n += 1
     return out
 
@@ -324,7 +340,8 @@ def convert(src: Path, args, log=print, cancel=None, stage=None, known_loop=...)
     if args.output:
         out = Path(args.output)
     else:
-        out = default_output(src, Path(args.output_dir) if args.output_dir else None)
+        out = default_output(src, Path(args.output_dir) if args.output_dir else None,
+                             output_label(args))
     if out.resolve() == src.resolve():
         raise ValueError("output path is the input file; choose a different output")
 
@@ -350,6 +367,9 @@ def convert(src: Path, args, log=print, cancel=None, stage=None, known_loop=...)
         f" -> GIF @ {fps:g}fps, {args.colors} colours, dither {args.dither}"
         + (f", lossy {args.lossy}" if args.lossy else "")
         + (f", all frames kept, plays at {100 / slowdown:.0f}% speed" if slowdown != 1 else ""))
+    if args.size > TEAMSPEAK_MAX_SIZE:
+        log(f"  note: --size {args.size} is above TeamSpeak's {TEAMSPEAK_MAX_SIZE}px avatar limit;"
+            " TeamSpeak will reject this GIF as an avatar")
     if fps > MAX_GIF_FPS:
         log("  note: --force60 uses 1/100s frame delays, which many viewers slow down"
             " (TeamSpeak 6 plays them very slowly)")
@@ -467,7 +487,9 @@ def main() -> int:
     p.add_argument("--dither", choices=DITHERS, help="dithering method; overrides the preset")
     p.add_argument("--lossy", type=int,
                    help="gifsicle lossy level (0 = off); overrides the preset")
-    p.add_argument("-s", "--size", type=int, default=300, help="max width/height in px (default 300)")
+    p.add_argument("-s", "--size", type=int, default=TEAMSPEAK_MAX_SIZE,
+                   help="max width/height in px (default 300, TeamSpeak's avatar limit; larger"
+                        " sizes are for use elsewhere)")
     p.add_argument("--fps", type=float,
                    help=f"override frame rate (default: match source, capped at {MAX_GIF_FPS},"
                         " or 30 for the smallest preset)")
@@ -496,6 +518,8 @@ def main() -> int:
     resolve_preset(args)
     if not 2 <= args.colors <= 256:
         p.error("--colors must be 2-256")
+    if args.size < 16:
+        p.error("--size must be at least 16")
     if args.faux60 and (args.force60 or args.fps):
         p.error("--faux60 can't be combined with --force60 or --fps")
     fps_limit = FORCE60_FPS if args.force60 else MAX_GIF_FPS

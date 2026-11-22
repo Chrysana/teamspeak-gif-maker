@@ -51,7 +51,7 @@ The script looks for the tools in this order:
 
 **Interface (Windows):** run `Make GIF.bat`. Add files by dropping them onto the .bat, onto the open window, or by typing a path into *Add*. Each file is checked in the background: resolution, frame rate, length, and whether it loops. Mouse and keyboard both work; press F1 for help. Your choices are remembered between sessions.
 
-Each GIF is saved as `name_<date>_<time>.gif` (e.g. `clip_2026-11-22_174512.gif`), next to its source or in the *Save to* folder, so existing files, including the source, are never overwritten.
+Each GIF is saved as `name_<preset>_<date>_<time>.gif` (e.g. `clip_standard_2026-11-22_174512.gif`; non-default settings are added, e.g. `clip_small-smooth-600px_...`), next to its source or in the *Save to* folder, so existing files, including the source, are never overwritten.
 
 **Command line:**
 
@@ -73,7 +73,7 @@ python make_gif.py --help                          # all options
 | `--fps N` | force a frame rate (default: match the source, max 50) |
 | `--faux60` | for sources over 50 fps: keep every frame for perfectly smooth motion, playing slower (60 fps source -> 83% speed) |
 | `--force60` | non-standard: allow up to 60 fps using mixed 1/100 s and 2/100 s frame delays (see below) |
-| `-s, --size N` | max width/height in px (default 300) |
+| `-s, --size N` | max width/height in px (default 300, TeamSpeak's limit; larger sizes are for use elsewhere and print a warning) |
 | `--loop` | if the clip repeats (e.g. an idle animation played 2.5 times), keep a single loop. The drag-and-drop flow detects this and asks |
 | `--square` | centre-crop to a square before scaling |
 | `--colors`, `--dither`, `--lossy` | override the preset's palette size, dithering and gifsicle lossy level |

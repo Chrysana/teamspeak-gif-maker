@@ -1157,7 +1157,7 @@ class App:
             "",
             ("Tips", Theme.MODAL_BORDER),
             "  Length matters most for file size. Keep one loop if a clip repeats.",
-            "  GIFs are saved as <name>_<date>_<time>.gif, nothing is overwritten.",
+            "  GIFs are saved as <name>_<preset>_<date>_<time>.gif; nothing is overwritten.",
         ])
 
     def quit(self):
