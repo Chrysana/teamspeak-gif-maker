@@ -96,4 +96,13 @@ Design notes, all based on testing against real TeamSpeak 6 clients:
 
 ## License
 
-[GPL-3.0-or-later](LICENSE). ffmpeg and gifsicle are separate projects under their own licenses and are not included in this repository.
+This project is licensed under [GPL-3.0-or-later](LICENSE).
+
+ffmpeg and gifsicle are **not included**. They are separate programs that the script runs from the command line, under their own licenses:
+
+- **ffmpeg**: [LGPL-2.1-or-later](https://github.com/FFmpeg/FFmpeg/blob/master/LICENSE.md), or GPL-2.0-or-later / GPL-3.0 depending on how a build was configured (most Windows builds are GPL).
+- **gifsicle**: [GPL-2.0-only](https://github.com/kohler/gifsicle/blob/master/COPYING), © Eddie Kohler.
+
+If you redistribute this tool *together with* ffmpeg or gifsicle binaries, you must follow their licenses for those binaries, e.g. include their license texts and provide or point to the matching source code.
+
+Not affiliated with or endorsed by TeamSpeak Systems GmbH. TeamSpeak is a trademark of its respective owner.
