@@ -48,6 +48,9 @@ MAX_GIF_FPS = 50
 # paper, but most viewers (browsers, Chromium-based UIs) slow 1/100s frames to
 # 10/100s, so playback may stutter.
 FORCE60_FPS = 60
+# --faux60: the opposite trade-off. Keep every frame of a >50fps source but give
+# each a plain 2/100s delay, so motion is perfectly even and TeamSpeak plays it
+# smoothly, at the cost of slower playback (60fps source -> 83% speed).
 
 DITHERS = {"none": "none", "atkinson": "atkinson", "floyd": "floyd_steinberg",
            "sierra": "sierra2_4a", "bayer": "bayer:bayer_scale=4"}
@@ -123,8 +126,13 @@ def local_palette_count(path: Path) -> int:
     return count
 
 
-def build_filter(fps: float, size: int, square: bool, colors: int, dither: str) -> str:
-    parts = [f"fps={fps:g}"]
+def build_filter(fps: float, size: int, square: bool, colors: int, dither: str,
+                 slowdown: float = 1.0) -> str:
+    parts = []
+    if slowdown != 1.0:
+        # Stretch timestamps so every source frame lands on its own output frame.
+        parts.append(f"setpts=PTS*{slowdown:.6f}")
+    parts.append(f"fps={fps:g}")
     if square:
         parts.append("crop='min(iw,ih)':'min(iw,ih)'")
     # Fit inside size x size, keep aspect ratio, never upscale.
@@ -145,6 +153,13 @@ def convert(src: Path, args) -> Path:
     if args.force60 and cap == MAX_GIF_FPS:
         cap = FORCE60_FPS
     fps = args.fps or min(info["fps"], cap)
+    slowdown = 1.0
+    if args.faux60:
+        if info["fps"] > MAX_GIF_FPS:
+            slowdown = info["fps"] / MAX_GIF_FPS
+            fps = MAX_GIF_FPS
+        else:
+            print(f"  note: source is {info['fps']:g}fps, so --faux60 has no effect")
     out = Path(args.output) if args.output else src.with_suffix(".gif")
     if out.resolve() == src.resolve():
         # Input is already a GIF: never overwrite the file we're reading from.
@@ -152,7 +167,8 @@ def convert(src: Path, args) -> Path:
 
     print(f"{src.name}: {info['width']}x{info['height']} @ {info['fps']:g}fps"
           f" -> GIF @ {fps:g}fps, {args.colors} colours, dither {args.dither}"
-          + (f", lossy {args.lossy}" if args.lossy else ""))
+          + (f", lossy {args.lossy}" if args.lossy else "")
+          + (f", all frames kept, plays at {100 / slowdown:.0f}% speed" if slowdown != 1 else ""))
     if fps > MAX_GIF_FPS:
         print("  note: --force60 uses 1/100s frame delays, which many viewers slow down"
               " (TeamSpeak 6 plays them very slowly)")
@@ -166,11 +182,11 @@ def convert(src: Path, args) -> Path:
             ff += ["-ss", args.start]
         if args.end:
             ff += ["-to", args.end]
-        ff += ["-i", str(src)]
         if args.duration:
             ff += ["-t", args.duration]
+        ff += ["-i", str(src)]
         ff += ["-an", "-lavfi",
-               build_filter(fps, args.size, args.square, args.colors, args.dither),
+               build_filter(fps, args.size, args.square, args.colors, args.dither, slowdown),
                "-loop", "0", str(raw)]
         subprocess.run(ff, check=True)
         gs = [str(GIFSICLE), "--no-warnings", "-O3"]
@@ -190,11 +206,12 @@ def convert(src: Path, args) -> Path:
     return out
 
 
-MENU = [
-    ("standard", "Standard"),
-    ("high", "High quality / larger size"),
-    ("small", "High compression / smaller size"),
-    ("smallest", "Smallest  (high compression + max 30fps)"),
+MENU = [  # (preset, faux60, label)
+    ("standard", False, "Standard"),
+    ("high", False, "High quality / larger size"),
+    ("small", False, "High compression / smaller size"),
+    ("smallest", False, "Smallest  (high compression + max 30fps)"),
+    ("standard", True, "Smoothest motion  (60fps clips: keep every frame, plays ~83% speed)"),
 ]
 TIME_RE = re.compile(r"^(\d+:){0,2}\d+(\.\d+)?$")  # 12.5 / 1:05 / 0:01:05.5
 
@@ -213,11 +230,12 @@ def ask(prompt: str, valid) -> str:
 def interactive(args) -> None:
     """Prompt for preset and trim (used by the drag-and-drop .bat)."""
     print("Choose a preset:")
-    for i, (_, label) in enumerate(MENU, 1):
+    for i, (_, _, label) in enumerate(MENU, 1):
         print(f"  {i}) {label}")
     choice = ask(f"Preset [1-{len(MENU)}, Enter = 1]: ",
                  lambda a: a == "" or (a.isdigit() and 1 <= int(a) <= len(MENU)))
-    args.preset = MENU[int(choice or 1) - 1][0]
+    args.preset, faux60, _ = MENU[int(choice or 1) - 1]
+    args.faux60 = args.faux60 or faux60
 
     print()
     print("Trim (press Enter to keep the whole clip). Times: seconds like 12.5, or 1:05")
@@ -253,6 +271,9 @@ def main() -> int:
                    help="non-standard: allow up to 60fps using mixed 1/100s and 2/100s frame"
                         " delays. Many viewers slow 1/100s frames down; TeamSpeak 6 plays"
                         " these GIFs very slowly")
+    p.add_argument("--faux60", action="store_true",
+                   help="for sources over 50fps: keep every frame for perfectly smooth motion,"
+                        " playing slower (60fps source -> 83%% speed)")
     p.add_argument("--square", action="store_true", help="center-crop to a square before scaling")
     p.add_argument("--start", help="start time, e.g. 3.5 or 00:00:03.5")
     p.add_argument("--end", help="end time (in source timeline)")
@@ -272,6 +293,8 @@ def main() -> int:
     args.lossy = lossy if args.lossy is None else args.lossy
     if not 2 <= args.colors <= 256:
         p.error("--colors must be 2-256")
+    if args.faux60 and (args.force60 or args.fps):
+        p.error("--faux60 can't be combined with --force60 or --fps")
     fps_limit = FORCE60_FPS if args.force60 else MAX_GIF_FPS
     if args.fps is not None and not 0 < args.fps <= fps_limit:
         p.error(f"--fps must be between 0 and {fps_limit}"
