@@ -12,8 +12,8 @@ Double-click `Make GIF.bat` (or drop files onto it) to open the interface, drag 
   Activity Log
                         fauna.mp4                720x954 · 30fps · 15.0s · loops every 6.0s (x2.5)
   Exit
-                       Preset      (X) Standard   ( ) High   ( ) Small   ( ) Smallest
-                                   256 colours, no dithering. Most accurate per byte.
+                       Preset      (X) Standard   ( ) Small   ( ) Smallest
+                                   Best quality: full 256-colour palette, no lossy steps.
 
                        Over 50fps  (X) Correct speed (50fps)   ( ) Smooth (all frames, slower)
                                    For 60fps clips. Smooth keeps every frame, plays at ~83% speed.
@@ -26,7 +26,7 @@ Double-click `Make GIF.bat` (or drop files onto it) to open the interface, drag 
                          Convert      Clear List      Open Output Folder
 
  Tab/↑↓ move · Space select · ←→ change · Del remove file · Esc menu · F1 help · Ctrl+Q quit
- ● Ready · 1 file(s)                                             v0.9.2  Sun 22 Nov 2026 17:45
+ ● Ready · 1 file(s)                                             v1.0.0  Sun 22 Nov 2026 17:45
 ```
 
 ## Download (Windows)
@@ -68,7 +68,7 @@ python make_gif.py --help                          # all options
 
 | Option | Meaning |
 |---|---|
-| `-p, --preset` | `standard` (default), `high`, `small`, `smallest` |
+| `-p, --preset` | `standard` (default), `small`, `smallest` |
 | `--start`, `--end`, `--duration` | trim, in seconds (`12.5`) or `m:ss` (`1:05`) |
 | `--fps N` | force a frame rate (default: match the source, max 50) |
 | `--faux60` | for sources over 50 fps: keep every frame for perfectly smooth motion, playing slower (60 fps source -> 83% speed) |
@@ -84,10 +84,11 @@ python make_gif.py --help                          # all options
 
 | Preset | Palette | Dither | Lossy | Max fps | Notes |
 |---|---|---|---|---|---|
-| standard | 256 | none | — | 50 | most accurate per byte |
-| high | 256 | Atkinson | — | 50 | softens gradient banding, same size as standard |
-| small | 128 | none | 30 | 50 | ~20–35% smaller, some banding in gradients |
-| smallest | 128 | none | 30 | 30 | small + fewer frames on high-fps clips |
+| standard | 256 | none | — | 50 | best quality |
+| small | 128 | Atkinson | 30 | 50 | ~15–25% smaller; light dithering hides most banding |
+| smallest | 128 | Atkinson | 30 | 30 | small + fewer frames on high-fps clips |
+
+**Standard is the best quality a TeamSpeak GIF can have**: the full 256-colour palette, no dithering, and no lossy steps. A bigger file wouldn't look better. Dithering mixes neighbouring colours to fake shades the palette lacks: it hides banding but adds fine grain, so it only pays off at 128 colours, where banding is visible. `--dither atkinson` adds it to Standard for the odd clip with banded gradients.
 
 **What actually controls file size**, from most to least effective:
 

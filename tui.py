@@ -753,9 +753,8 @@ class FileList(Widget):
 # ---- pages --------------------------------------------------------------------------------------------------
 
 PRESET_NOTES = {
-    "standard": "256 colours, no dithering. Most accurate per byte.",
-    "high": "256 colours, light dithering. Softens banding in smooth gradients.",
-    "small": "128 colours + light compression. ~20-35% smaller, some banding.",
+    "standard": "Best quality: full 256-colour palette, no lossy steps.",
+    "small": "128 colours, light dithering and compression. ~15-25% smaller.",
     "smallest": "Like Small, plus at most 30fps. Much smaller for 60fps clips.",
 }
 
@@ -771,8 +770,9 @@ class ConvertPage:
         self.add_input = f.add(TextInput(placeholder="drag files here, or type a path and press Enter",
                                          on_enter=lambda v: app.add_from_text(v, report=True)))
         self.list = f.add(FileList(app))
-        self.preset = f.add(RadioGroup({"standard": "Standard", "high": "High", "small": "Small",
-                                        "smallest": "Smallest"}, s.get("preset", "standard")))
+        preset = s.get("preset", "standard")
+        self.preset = f.add(RadioGroup({"standard": "Standard", "small": "Small", "smallest": "Smallest"},
+                                       preset if preset in PRESET_NOTES else "standard"))
         self.speed = f.add(RadioGroup({"real": "Correct speed (50fps)", "faux60": "Smooth (all frames, slower)"},
                                       "faux60" if s.get("faux60") else "real"))
         self.start = f.add(TextInput(width=10, placeholder="0:00"))

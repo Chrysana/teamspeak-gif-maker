@@ -25,7 +25,7 @@ from datetime import datetime
 from fractions import Fraction
 from pathlib import Path
 
-__version__ = "0.9.2"
+__version__ = "1.0.0"
 
 BIN = Path(__file__).resolve().parent / "bin"
 
@@ -58,14 +58,17 @@ DITHERS = {"none": "none", "atkinson": "atkinson", "floyd": "floyd_steinberg",
            "sierra": "sierra2_4a", "bayer": "bayer:bayer_scale=4"}
 
 # preset -> (palette colours, dither, gifsicle lossy level, max fps). Measured on test clips.
+# Standard is the best quality a TeamSpeak GIF can have: the full 256-colour palette and no
+# lossy steps. At 128 colours, banding shows in gradients; Atkinson dithering (it spreads
+# only 3/4 of the colour error, so it adds little grain) hides most of it for +1-8% size.
 PRESETS = {
-    # Atkinson spreads only 3/4 of the colour error, so it softens banding without the
-    # speckle Floyd-Steinberg adds to dark flat areas. Same size as standard.
+    "standard": (256, "none", 0, MAX_GIF_FPS),      # best quality
+    "small":    (128, "atkinson", 30, MAX_GIF_FPS),  # ~15-25% smaller
+    "smallest": (128, "atkinson", 30, 30),           # small + max 30fps
+    # Old "high" preset (standard + light dither), kept so existing commands still work.
     "high":     (256, "atkinson", 0, MAX_GIF_FPS),
-    "standard": (256, "none", 0, MAX_GIF_FPS),   # most accurate per byte; faint banding
-    "small":    (128, "none", 30, MAX_GIF_FPS),  # ~20-35% smaller; visible banding
-    "smallest": (128, "none", 30, 30),           # small + max 30fps
 }
+MAIN_PRESETS = ("standard", "small", "smallest")
 
 TIME_RE = re.compile(r"^(\d+:){0,2}\d+(\.\d+)?$")  # 12.5 / 1:05 / 0:01:05.5
 
@@ -414,8 +417,7 @@ def convert(src: Path, args, log=print, cancel=None, stage=None, known_loop=...)
 
 
 MENU = [  # (preset, faux60, label)
-    ("standard", False, "Standard"),
-    ("high", False, "High quality / larger size"),
+    ("standard", False, "Standard  (best quality)"),
     ("small", False, "High compression / smaller size"),
     ("smallest", False, "Smallest  (high compression + max 30fps)"),
     ("standard", True, "Smoothest motion  (60fps clips: keep every frame, plays ~83% speed)"),
@@ -481,8 +483,9 @@ def main() -> int:
                         " next to the source)")
     p.add_argument("--output-dir", help="folder for the output GIFs (default: next to each source)")
     p.add_argument("-p", "--preset", choices=PRESETS, default="standard",
-                   help="high (256 colours + light dither), standard (256, default),"
-                        " small (128 + light lossy), smallest (small, max 30fps)")
+                   metavar="{" + ",".join(MAIN_PRESETS) + "}",
+                   help="standard (best quality, default), small (128 colours + light dither"
+                        " and lossy), smallest (small, max 30fps)")
     p.add_argument("--colors", type=int, help="palette size 2-256; overrides the preset")
     p.add_argument("--dither", choices=DITHERS, help="dithering method; overrides the preset")
     p.add_argument("--lossy", type=int,
