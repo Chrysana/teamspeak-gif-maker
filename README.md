@@ -4,30 +4,7 @@ Turn video clips (or oversized GIFs) into animated GIFs that work as **TeamSpeak
 
 Double-click `Make GIF.bat` (or drop files onto it) to open the interface, drag your clips onto the window, pick a preset and press **Convert**.
 
-```text
-                         TeamSpeak GIF Maker · Avatar GIF Converter
-
-  Convert              Files (1)
-                       Add         [                                                       ]
-  Activity Log
-                        fauna.mp4                720x954 · 30fps · 15.0s · loops every 6.0s (x2.5)
-  Exit
-                       Preset      (X) Standard   ( ) Small   ( ) Smallest
-                                   Best quality: full 256-colour palette, no lossy steps.
-
-                       Over 50fps  (X) Correct speed (50fps)   ( ) Smooth (all frames, slower)
-                                   For 60fps clips. Smooth keeps every frame, plays at ~83% speed.
-                       Trim        Start [0:00    ]  Length  [all     ] e.g. 12.5 or 1:05
-
-                       Options     [X] Keep one loop if a clip repeats    [ ] Crop to square
-
-                       Save to     [next to each source file                               ]
-
-                         Convert      Clear List      Open Output Folder
-
- Tab/↑↓ move · Space select · ←→ change · Del remove file · Esc menu · F1 help · Ctrl+Q quit
- ● Ready · 1 file(s)                                             v1.0.0  Sun 22 Nov 2026 17:45
-```
+![The TeamSpeak GIF Maker interface](docs/interface.png)
 
 ## Download (Windows)
 
