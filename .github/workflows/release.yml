@@ -84,7 +84,7 @@ jobs:
           PKG="teamspeak-gif-maker-${VERSION}-win64"
           P="pkg/$PKG"
           mkdir -p "$P/bin/ffmpeg" "$P/bin/gifsicle" "$P/bin/python"
-          cp make_gif.py "Make GIF.bat" README.md LICENSE "$P/"
+          cp make_gif.py tui.py "Make GIF.bat" README.md LICENSE "$P/"
 
           7z x -y -odl/ffmpeg dl/ffmpeg/*.zip > /dev/null
           ffdir=$(ls -d dl/ffmpeg/*/ | head -1)
@@ -146,6 +146,7 @@ jobs:
           assert max(info["width"], info["height"]) <= 300, "too large"
           assert abs(info["duration"] - 2) < 0.05, "wrong duration"
           assert m.local_palette_count(Path("test.gif")) == 0, "per-frame palettes"
+          import tui  # the interface must at least import under the embeddable Python
           print("smoke test OK")
           EOF
 

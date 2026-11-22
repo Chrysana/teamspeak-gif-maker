@@ -2,24 +2,31 @@
 
 Turn video clips (or oversized GIFs) into animated GIFs that work as **TeamSpeak avatars**: at most 300 px on any side, playing at the right speed, and as small as possible without visible quality loss.
 
-Drag files onto `Make GIF.bat`, pick a preset, optionally trim, done.
+Double-click `Make GIF.bat` (or drop files onto it) to open the interface, drag your clips onto the window, pick a preset and press **Convert**.
 
-```
-Choose a preset:
-  1) Standard
-  2) High quality / larger size
-  3) High compression / smaller size
-  4) Smallest  (high compression + max 30fps)
-  5) Smoothest motion  (60fps clips: keep every frame, plays ~83% speed)
-Preset [1-5, Enter = 1]: 1
+```text
+                         TeamSpeak GIF Maker · Avatar GIF Converter
 
-Trim (press Enter to keep the whole clip). Times: seconds like 12.5, or 1:05
-  Clip length: 23.9s
-  Start at: 0:05
-  Length:   10
+  Convert              Files (1)
+                       Add         [                                                       ]
+  Activity Log
+                        fauna.mp4                720x954 · 30fps · 15.0s · loops every 6.0s (x2.5)
+  Exit
+                       Preset      (X) Standard   ( ) High   ( ) Small   ( ) Smallest
+                                   256 colours, no dithering. Most accurate per byte.
 
-clip.mp4: 1280x720 @ 60fps -> GIF @ 50fps, 256 colours, dither none
-  -> clip.gif  300x169, 10.00s, 11.86 MB
+                       Over 50fps  (X) Correct speed (50fps)   ( ) Smooth (all frames, slower)
+                                   For 60fps clips. Smooth keeps every frame, plays at ~83% speed.
+                       Trim        Start [0:00    ]  Length  [all     ] e.g. 12.5 or 1:05
+
+                       Options     [X] Keep one loop if a clip repeats    [ ] Crop to square
+
+                       Save to     [next to each source file                               ]
+
+                         Convert      Clear List      Open Output Folder
+
+ Tab/↑↓ move · Space select · ←→ change · Del remove file · Esc menu · F1 help · Ctrl+Q quit
+ ● Ready · 1 file(s)                                             v0.9.2  Sun 22 Nov 2026 17:45
 ```
 
 ## Download (Windows)
@@ -42,7 +49,9 @@ The script looks for the tools in this order:
 
 ## Usage
 
-**Drag and drop (Windows):** drop one or more videos or GIFs onto `Make GIF.bat`. Each GIF is saved next to its source as `name_<date>_<time>.gif` (e.g. `clip_2026-11-22_174512.gif`), so existing files, including the source, are never overwritten.
+**Interface (Windows):** run `Make GIF.bat`. Add files by dropping them onto the .bat, onto the open window, or by typing a path into *Add*. Each file is checked in the background: resolution, frame rate, length, and whether it loops. Mouse and keyboard both work; press F1 for help. Your choices are remembered between sessions.
+
+Each GIF is saved as `name_<date>_<time>.gif` (e.g. `clip_2026-11-22_174512.gif`), next to its source or in the *Save to* folder, so existing files, including the source, are never overwritten.
 
 **Command line:**
 
@@ -52,6 +61,8 @@ python make_gif.py clip.mp4 -p small               # pick a preset
 python make_gif.py clip.mp4 --start 5 --duration 10
 python make_gif.py clip.mp4 --square               # centre-crop to a square first
 python make_gif.py *.mp4                           # batch
+python make_gif.py clip.mp4 --output-dir D:\gifs     # save somewhere else
+python tui.py clip.mp4                             # the interface, from a console
 python make_gif.py --help                          # all options
 ```
 
@@ -67,6 +78,7 @@ python make_gif.py --help                          # all options
 | `--square` | centre-crop to a square before scaling |
 | `--colors`, `--dither`, `--lossy` | override the preset's palette size, dithering and gifsicle lossy level |
 | `-o, --output` | output path (single input only) |
+| `--output-dir DIR` | save the GIFs in this folder instead of next to each source |
 
 ## Presets
 

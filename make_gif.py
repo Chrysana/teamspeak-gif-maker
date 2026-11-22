@@ -10,7 +10,7 @@ That rules out gifski, whose output always uses per-frame palettes.
 
 Usage:
     python make_gif.py clip.mp4 [more clips...] [options]
-    (or drag files onto "Make GIF.bat")
+    python tui.py [files...]          (interactive interface, used by "Make GIF.bat")
 """
 
 import argparse
@@ -67,16 +67,69 @@ PRESETS = {
     "smallest": (128, "none", 30, 30),           # small + max 30fps
 }
 
+TIME_RE = re.compile(r"^(\d+:){0,2}\d+(\.\d+)?$")  # 12.5 / 1:05 / 0:01:05.5
+
+
+class Cancelled(Exception):
+    """Raised when a conversion is cancelled through its cancel event."""
+
+
+def missing_tools() -> list[str]:
+    return [n for n, exe in (("ffmpeg", FFMPEG), ("ffprobe", FFPROBE), ("gifsicle", GIFSICLE))
+            if not exe]
+
+
+def parse_time(text: str) -> float:
+    """'12.5', '1:05' or '0:01:05.5' -> seconds."""
+    seconds = 0.0
+    for part in text.strip().split(":"):
+        seconds = seconds * 60 + float(part)
+    return seconds
+
+
+def format_size(n: int) -> str:
+    return f"{n / 1048576:.2f} MB" if n >= 1048576 else f"{n / 1024:.0f} KB"
+
+
+def _tool_error(cmd: list, stderr: bytes, code: int) -> RuntimeError:
+    lines = stderr.decode("utf-8", "replace").strip().splitlines()
+    return RuntimeError(f"{Path(cmd[0]).stem} failed: " + (lines[-1] if lines else f"exit code {code}"))
+
+
+def run_capture(cmd: list) -> bytes:
+    """Run a tool and return its stdout. stdin is never shared with the console."""
+    proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True)
+    if proc.returncode:
+        raise _tool_error(cmd, proc.stderr, proc.returncode)
+    return proc.stdout
+
+
+def run_tool(cmd: list, cancel=None) -> None:
+    """Run a tool quietly (errors are raised, not printed), optionally cancellable."""
+    with tempfile.TemporaryFile() as err:
+        proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stderr=err)
+        while True:
+            try:
+                code = proc.wait(timeout=0.1)
+                break
+            except subprocess.TimeoutExpired:
+                if cancel is not None and cancel.is_set():
+                    proc.kill()
+                    proc.wait()
+                    raise Cancelled()
+        if code:
+            err.seek(0)
+            raise _tool_error(cmd, err.read(), code)
+
 
 def probe(path: Path) -> dict:
-    out = subprocess.run(
+    out = run_capture(
         [str(FFPROBE), "-v", "error", "-select_streams", "v:0",
          "-count_packets",
          "-show_entries",
          "stream=width,height,avg_frame_rate,r_frame_rate,nb_read_packets:format=duration,format_name",
-         "-of", "json", str(path)],
-        capture_output=True, text=True, check=True,
-    ).stdout
+         "-of", "json", str(path)])
     data = json.loads(out)
     if not data.get("streams"):
         raise ValueError("no video stream found")
@@ -147,13 +200,14 @@ def build_filter(fps: float, size: int, square: bool, colors: int, dither: str,
     return ",".join(parts)
 
 
-def default_output(src: Path) -> Path:
-    """<name>_<date>_<time>.gif next to the source; never an existing file."""
+def default_output(src: Path, folder: Path | None = None) -> Path:
+    """<name>_<date>_<time>.gif next to the source (or in folder); never an existing file."""
+    folder = folder or src.parent
     stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    out = src.with_name(f"{src.stem}_{stamp}.gif")
+    out = folder / f"{src.stem}_{stamp}.gif"
     n = 2
     while out.exists():
-        out = src.with_name(f"{src.stem}_{stamp}-{n}.gif")
+        out = folder / f"{src.stem}_{stamp}-{n}.gif"
         n += 1
     return out
 
@@ -167,7 +221,7 @@ def detect_loop(src: Path, info: dict, start=None, end=None, duration=None) -> d
     """
     w = 64
     h = max(2, round(w * info["height"] / info["width"]))
-    cmd = [str(FFMPEG), "-v", "error"]
+    cmd = [str(FFMPEG), "-nostdin", "-v", "error"]
     if start:
         cmd += ["-ss", start]
     if end:
@@ -176,7 +230,7 @@ def detect_loop(src: Path, info: dict, start=None, end=None, duration=None) -> d
         cmd += ["-t", duration]
     cmd += ["-i", str(src), "-an", "-vf", f"scale={w}:{h}:flags=area,format=gray",
             "-fps_mode", "passthrough", "-frames:v", "3000", "-f", "rawvideo", "-"]
-    data = subprocess.run(cmd, capture_output=True, check=True).stdout
+    data = run_capture(cmd)
     size = w * h
     frames = [data[i:i + size] for i in range(0, len(data) - size + 1, size)]
     n = len(frames)
@@ -221,9 +275,40 @@ def detect_loop(src: Path, info: dict, start=None, end=None, duration=None) -> d
     return None
 
 
-def convert(src: Path, args) -> Path:
+def options(**overrides) -> argparse.Namespace:
+    """Conversion options with defaults; colours/dither/lossy follow the preset unless given."""
+    opts = argparse.Namespace(
+        preset="standard", colors=None, dither=None, lossy=None, size=300, fps=None,
+        force60=False, faux60=False, loop=False, square=False,
+        start=None, end=None, duration=None, output=None, output_dir=None)
+    for key, value in overrides.items():
+        setattr(opts, key, value)
+    return resolve_preset(opts)
+
+
+def resolve_preset(opts: argparse.Namespace) -> argparse.Namespace:
+    colors, dither, lossy, _ = PRESETS[opts.preset]
+    opts.colors = opts.colors or colors
+    opts.dither = opts.dither or dither
+    opts.lossy = lossy if opts.lossy is None else opts.lossy
+    return opts
+
+
+def convert(src: Path, args, log=print, cancel=None, stage=None, known_loop=...) -> dict:
+    """Convert one file. Messages go to log(); stage(text) reports progress steps.
+
+    known_loop: a detect_loop() result for the untrimmed clip, if already computed.
+    Returns {"path", "width", "height", "duration", "bytes", "warnings"}.
+    """
+    stage = stage or (lambda text: None)
+
+    def check_cancel():
+        if cancel is not None and cancel.is_set():
+            raise Cancelled()
+
     if not src.is_file():
         raise FileNotFoundError("file not found")
+    stage("Reading")
     info = probe(src)
     cap = PRESETS[args.preset][3]
     if args.force60 and cap == MAX_GIF_FPS:
@@ -235,34 +320,43 @@ def convert(src: Path, args) -> Path:
             slowdown = info["fps"] / MAX_GIF_FPS
             fps = MAX_GIF_FPS
         else:
-            print(f"  note: source is {info['fps']:g}fps, so --faux60 has no effect")
-    out = Path(args.output) if args.output else default_output(src)
+            log(f"  note: source is {info['fps']:g}fps, so faux 60 has no effect")
+    if args.output:
+        out = Path(args.output)
+    else:
+        out = default_output(src, Path(args.output_dir) if args.output_dir else None)
     if out.resolve() == src.resolve():
-        raise ValueError("output path is the input file; choose a different --output")
+        raise ValueError("output path is the input file; choose a different output")
 
     end, duration = args.end, args.duration
     if args.loop:
-        lp = detect_loop(src, info, args.start, args.end, args.duration)
+        trimmed = args.start or args.end or args.duration
+        if known_loop is not ... and not trimmed:
+            lp = known_loop
+        else:
+            stage("Finding loop")
+            lp = detect_loop(src, info, args.start, args.end, args.duration)
+        check_cancel()
         if lp:
             # keep frames [0, period): the next frame would be the start again
             duration = f"{(lp['frames'] - 0.5) / info['fps']:.4f}"
             end = None
-            print(f"  loop: {lp['seconds']:.2f}s cycle repeats {lp['cycles']:.1f}x"
-                  " -> keeping one loop")
+            log(f"  loop: {lp['seconds']:.2f}s cycle repeats {lp['cycles']:.1f}x"
+                " -> keeping one loop")
         else:
-            print("  loop: no repeating cycle found, keeping the whole clip")
+            log("  loop: no repeating cycle found, keeping the whole clip")
 
-    print(f"{src.name}: {info['width']}x{info['height']} @ {info['fps']:g}fps"
-          f" -> GIF @ {fps:g}fps, {args.colors} colours, dither {args.dither}"
-          + (f", lossy {args.lossy}" if args.lossy else "")
-          + (f", all frames kept, plays at {100 / slowdown:.0f}% speed" if slowdown != 1 else ""))
+    log(f"{src.name}: {info['width']}x{info['height']} @ {info['fps']:g}fps"
+        f" -> GIF @ {fps:g}fps, {args.colors} colours, dither {args.dither}"
+        + (f", lossy {args.lossy}" if args.lossy else "")
+        + (f", all frames kept, plays at {100 / slowdown:.0f}% speed" if slowdown != 1 else ""))
     if fps > MAX_GIF_FPS:
-        print("  note: --force60 uses 1/100s frame delays, which many viewers slow down"
-              " (TeamSpeak 6 plays them very slowly)")
+        log("  note: --force60 uses 1/100s frame delays, which many viewers slow down"
+            " (TeamSpeak 6 plays them very slowly)")
 
     with tempfile.TemporaryDirectory() as tmp:
         raw = Path(tmp) / "raw.gif"
-        ff = [str(FFMPEG), "-v", "error", "-y",
+        ff = [str(FFMPEG), "-nostdin", "-v", "error", "-y",
               # high-quality scaling for automatic pixel-format conversions too
               "-sws_flags", "lanczos+accurate_rnd+full_chroma_int"]
         if args.start:
@@ -275,22 +369,28 @@ def convert(src: Path, args) -> Path:
         ff += ["-an", "-lavfi",
                build_filter(fps, args.size, args.square, args.colors, args.dither, slowdown),
                "-loop", "0", str(raw)]
-        subprocess.run(ff, check=True)
+        check_cancel()
+        stage("Encoding")
+        run_tool(ff, cancel)
         gs = [str(GIFSICLE), "--no-warnings", "-O3"]
         if args.lossy:
             gs.append(f"--lossy={args.lossy}")
-        subprocess.run(gs + [str(raw), "-o", str(out)], check=True)
+        stage("Optimizing")
+        run_tool(gs + [str(raw), "-o", str(out)], cancel)
 
     res = probe(out)
-    kb = out.stat().st_size / 1024
-    size_str = f"{kb / 1024:.2f} MB" if kb >= 1024 else f"{kb:.0f} KB"
-    print(f"  -> {out}  {res['width']}x{res['height']}, {res['duration']:.2f}s, {size_str}")
+    size = out.stat().st_size
+    log(f"  -> {out}  {res['width']}x{res['height']}, {res['duration']:.2f}s, {format_size(size)}")
+    warnings = []
     if local_palette_count(out):
-        print("  !! warning: output has per-frame colour tables; TeamSpeak will reject it")
-    if info["is_gif"] and out.stat().st_size > src.stat().st_size:
-        print("  note: result is larger than the original GIF, which was already well"
-              " compressed. Keep the original, or try --preset small.")
-    return out
+        warnings.append("output has per-frame colour tables; TeamSpeak will reject it")
+    if info["is_gif"] and size > src.stat().st_size:
+        warnings.append("result is larger than the original GIF, which was already well"
+                        " compressed. Keep the original, or try a smaller preset.")
+    for w in warnings:
+        log(f"  note: {w}")
+    return {"path": out, "width": res["width"], "height": res["height"],
+            "duration": res["duration"], "bytes": size, "warnings": warnings}
 
 
 MENU = [  # (preset, faux60, label)
@@ -300,7 +400,6 @@ MENU = [  # (preset, faux60, label)
     ("smallest", False, "Smallest  (high compression + max 30fps)"),
     ("standard", True, "Smoothest motion  (60fps clips: keep every frame, plays ~83% speed)"),
 ]
-TIME_RE = re.compile(r"^(\d+:){0,2}\d+(\.\d+)?$")  # 12.5 / 1:05 / 0:01:05.5
 
 
 def ask(prompt: str, valid) -> str:
@@ -315,7 +414,7 @@ def ask(prompt: str, valid) -> str:
 
 
 def interactive(args) -> None:
-    """Prompt for preset and trim (used by the drag-and-drop .bat)."""
+    """Simple prompts for preset and trim (the .bat now opens the full interface, tui.py)."""
     print("Choose a preset:")
     for i, (_, _, label) in enumerate(MENU, 1):
         print(f"  {i}) {label}")
@@ -360,6 +459,7 @@ def main() -> int:
     p.add_argument("inputs", nargs="+", type=Path, help="video or GIF file(s)")
     p.add_argument("-o", "--output", help="output path (single input only; default: <name>_<date>_<time>.gif"
                         " next to the source)")
+    p.add_argument("--output-dir", help="folder for the output GIFs (default: next to each source)")
     p.add_argument("-p", "--preset", choices=PRESETS, default="standard",
                    help="high (256 colours + light dither), standard (256, default),"
                         " small (128 + light lossy), smallest (small, max 30fps)")
@@ -385,7 +485,7 @@ def main() -> int:
     p.add_argument("--end", help="end time (in source timeline)")
     p.add_argument("--duration", help="length to keep instead of --end")
     p.add_argument("-i", "--interactive", action="store_true",
-                   help="prompt for preset and trim (used by Make GIF.bat)")
+                   help="simple text prompts for preset and trim")
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     args = p.parse_args()
     if args.interactive:
@@ -393,10 +493,7 @@ def main() -> int:
 
     if args.output and len(args.inputs) > 1:
         p.error("--output can only be used with a single input")
-    colors, dither, lossy, _ = PRESETS[args.preset]
-    args.colors = args.colors or colors
-    args.dither = args.dither or dither
-    args.lossy = lossy if args.lossy is None else args.lossy
+    resolve_preset(args)
     if not 2 <= args.colors <= 256:
         p.error("--colors must be 2-256")
     if args.faux60 and (args.force60 or args.fps):
@@ -405,10 +502,10 @@ def main() -> int:
     if args.fps is not None and not 0 < args.fps <= fps_limit:
         p.error(f"--fps must be between 0 and {fps_limit}"
                 + ("" if args.force60 else " (up to 60 with --force60)"))
-    missing = [n for n, exe in (("ffmpeg", FFMPEG), ("ffprobe", FFPROBE),
-                                ("gifsicle", GIFSICLE)) if not exe]
-    if missing:
-        p.error(f"can't find {', '.join(missing)}. Put them in {BIN} or on your PATH"
+    if args.output_dir and not Path(args.output_dir).is_dir():
+        p.error(f"--output-dir {args.output_dir} is not a folder")
+    if missing_tools():
+        p.error(f"can't find {', '.join(missing_tools())}. Put them in {BIN} or on your PATH"
                 " (see README).")
 
     failed = 0
