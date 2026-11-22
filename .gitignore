@@ -1,0 +1,18 @@
+# Third-party tool binaries (download separately, see README)
+bin/
+
+# Test media and outputs (third-party content, not redistributable)
+test-gifs/
+ts-test/
+*.gif
+*.mp4
+*.mkv
+*.mov
+*.webm
+
+# Personal notes
+Make GIF.txt
+
+# Python
+__pycache__/
+*.pyc
