@@ -1,0 +1,70 @@
+# Weekly check for new ffmpeg / gifsicle releases.
+# Opens one issue per new upstream version (labelled "tool-update") when it is
+# newer than the version recorded in .github/tool-versions.json. To clear it:
+# test with the new version, bump tool-versions.json, and close the issue.
+name: Check tool updates
+
+on:
+  schedule:
+    - cron: "0 9 * * 1" # Mondays 09:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare tested versions with upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # latest_tag <repo url> <tag regex> <prefix to strip>
+          latest_tag() {
+            git ls-remote --tags --refs "$1" \
+              | awk '{sub("refs/tags/", "", $2); print $2}' \
+              | grep -E "$2" | sed "s/^$3//" | sort -V | tail -1
+          }
+
+          gh label create tool-update --color 0E8A16 \
+            --description "A newer ffmpeg/gifsicle release is available" 2>/dev/null || true
+
+          check() { # name, upstream version, release notes url
+            local name=$1 latest=$2 url=$3
+            local tested
+            tested=$(jq -r --arg n "$name" '.[$n]' .github/tool-versions.json)
+            echo "$name: tested $tested, latest $latest"
+            if [ "$(printf '%s\n%s\n' "$tested" "$latest" | sort -V | tail -1)" = "$tested" ]; then
+              return
+            fi
+            local title="$name $latest is available (tested with $tested)"
+            if gh issue list --label tool-update --state open --search "\"$name $latest\" in:title" \
+                 --json title --jq '.[].title' | grep -qF "$name $latest"; then
+              echo "  issue already open"
+              return
+            fi
+            gh issue create --label tool-update --title "$title" --body "$(cat <<EOF
+          A newer **$name** release is out: **$latest** (this project was last tested with **$tested**).
+
+          Release info: $url
+
+          To update:
+          1. Put the new $name in \`bin/\` (or update it on your PATH).
+          2. Convert a few test clips and check the output still loads as a TeamSpeak avatar.
+          3. Set \`"$name": "$latest"\` in \`.github/tool-versions.json\` and close this issue.
+          EOF
+          )"
+          }
+
+          check ffmpeg \
+            "$(latest_tag https://github.com/FFmpeg/FFmpeg '^n[0-9]+\.[0-9]+(\.[0-9]+)?$' n)" \
+            "https://ffmpeg.org/download.html#releases"
+          check gifsicle \
+            "$(latest_tag https://github.com/kohler/gifsicle '^v[0-9]+\.[0-9]+(\.[0-9]+)?$' v)" \
+            "https://www.lcdf.org/gifsicle/changes.html"

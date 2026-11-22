@@ -90,6 +90,10 @@ Design notes, all based on testing against real TeamSpeak 6 clients:
 - **Scaling happens before colour reduction.** Resizing an already-quantised GIF re-dithers it and loses quality.
 - **Heavy `--lossy` is avoided.** gifsicle's lossy mode at high levels causes obvious noise and streaks; only a light level is used, and only in the small presets.
 
+## Tool versions
+
+[`.github/tool-versions.json`](.github/tool-versions.json) records the ffmpeg and gifsicle versions this project was last tested with. A weekly workflow compares them with upstream releases and opens a [`tool-update`](../../issues?q=label%3Atool-update) issue when a newer one is out.
+
 ## License
 
 [GPL-3.0-or-later](LICENSE). ffmpeg and gifsicle are separate projects under their own licenses and are not included in this repository.

@@ -1,0 +1,5 @@
+{
+  "_comment": "Tool versions this project was last tested with. Bump after testing a newer release; the check-tool-updates workflow compares these against upstream.",
+  "ffmpeg": "9.1",
+  "gifsicle": "1.97"
+}
