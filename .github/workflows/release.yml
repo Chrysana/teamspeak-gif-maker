@@ -1,0 +1,168 @@
+# Builds the self-contained Windows release zip when a version tag (v*) is pushed:
+# make_gif.py + Make GIF.bat + bundled ffmpeg, gifsicle and embeddable Python,
+# with license texts, a third-party notice, and the ffmpeg/gifsicle source code
+# attached to the release (as required by their (L)GPL licenses).
+#
+# To bump a bundled tool, edit the env values below.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build, e.g. v0.9.1"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  FFMPEG_BRANCH: "9.0"        # BtbN release-branch build (LGPL, shared)
+  GIFSICLE_VERSION: "1.97"    # eternallybored.org Windows build
+  PYTHON_VERSION: "3.14.10"   # python.org embeddable package
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Resolve tag
+        run: echo "TAG=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Check version matches tag
+        run: |
+          v=$(python -c "import ast,sys; t=ast.parse(open('make_gif.py').read()); print(next(n.value.value for n in t.body if isinstance(n, ast.Assign) and n.targets[0].id == '__version__'))")
+          [ "v$v" = "$TAG" ] || { echo "make_gif.py __version__ is $v but tag is $TAG"; exit 1; }
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+
+      - name: Download bundled tools
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p dl/ffmpeg dl/gifsicle dl/python out
+
+          # ffmpeg: newest dated BtbN build of the release branch. Its file name
+          # carries the exact FFmpeg commit, used below for the matching source.
+          br=$(echo "$FFMPEG_BRANCH" | sed 's/\./\\./g')
+          FF_LINE=$(gh api "repos/BtbN/FFmpeg-Builds/releases?per_page=20" \
+            --jq '.[] | select(.tag_name | startswith("autobuild-")) | .tag_name as $t | .assets[].name | $t + " " + .' \
+            | grep -m1 -E " ffmpeg-n${br}[.0-9]*-[0-9]+-g[0-9a-f]+-win64-lgpl-shared-${br}\.zip$" || true)
+          [ -n "$FF_LINE" ] || { echo "no matching BtbN build found"; exit 1; }
+          read -r FF_RELEASE FF_ASSET <<< "$FF_LINE"
+          FF_DESCRIBE=$(echo "$FF_ASSET" | sed -E 's/^ffmpeg-(n[^-]+-[0-9]+-g[0-9a-f]+)-.*/\1/')
+          FF_SHA=$(gh api "repos/FFmpeg/FFmpeg/commits/${FF_DESCRIBE##*-g}" --jq .sha)
+          echo "ffmpeg: $FF_RELEASE / $FF_ASSET ($FF_SHA)"
+          gh release download "$FF_RELEASE" -R BtbN/FFmpeg-Builds -p "$FF_ASSET" -D dl/ffmpeg
+          curl -sSfL -o "out/ffmpeg-source-${FF_DESCRIBE}.tar.gz" \
+            "https://github.com/FFmpeg/FFmpeg/archive/${FF_SHA}.tar.gz"
+
+          curl -sSfL -o dl/gifsicle/gifsicle.zip \
+            "https://eternallybored.org/misc/gifsicle/releases/gifsicle-${GIFSICLE_VERSION}-win64.zip"
+          curl -sSfL -o "out/gifsicle-${GIFSICLE_VERSION}.tar.gz" \
+            "https://www.lcdf.org/gifsicle/gifsicle-${GIFSICLE_VERSION}.tar.gz"
+
+          curl -sSfL -o dl/python/python.zip \
+            "https://www.python.org/ftp/python/${PYTHON_VERSION}/python-${PYTHON_VERSION}-embed-amd64.zip"
+
+          {
+            echo "FF_RELEASE=$FF_RELEASE"; echo "FF_ASSET=$FF_ASSET"
+            echo "FF_DESCRIBE=$FF_DESCRIBE"; echo "FF_SHA=$FF_SHA"
+          } >> "$GITHUB_ENV"
+
+      - name: Assemble package
+        run: |
+          set -euo pipefail
+          PKG="teamspeak-gif-maker-${VERSION}-win64"
+          P="pkg/$PKG"
+          mkdir -p "$P/bin/ffmpeg" "$P/bin/gifsicle" "$P/bin/python"
+          cp make_gif.py "Make GIF.bat" README.md LICENSE "$P/"
+
+          7z x -y -odl/ffmpeg dl/ffmpeg/*.zip > /dev/null
+          ffdir=$(ls -d dl/ffmpeg/*/ | head -1)
+          cp "$ffdir"bin/*.dll "$ffdir"bin/ffmpeg.exe "$ffdir"bin/ffprobe.exe "$P/bin/ffmpeg/"
+          cp "$ffdir"LICENSE.txt "$P/bin/ffmpeg/LICENSE.txt"
+
+          7z x -y -odl/gifsicle dl/gifsicle/gifsicle.zip > /dev/null
+          cp "$(find dl/gifsicle -name gifsicle.exe | head -1)" "$P/bin/gifsicle/"
+          cp "$(find dl/gifsicle -name COPYING | head -1)" "$P/bin/gifsicle/COPYING"
+
+          7z x -y -o"$P/bin/python" dl/python/python.zip > /dev/null
+
+          cat > "$P/THIRD-PARTY-NOTICES.md" <<EOF
+          # Third-party software
+
+          This package bundles the following programs. They are separate works,
+          run by make_gif.py as external programs, and are distributed under their
+          own licenses. The project itself is GPL-3.0-or-later (see LICENSE).
+
+          ## FFmpeg (bin/ffmpeg/)
+          - Version: ${FF_DESCRIBE} (commit ${FF_SHA})
+          - Build: ${FF_ASSET} from https://github.com/BtbN/FFmpeg-Builds/releases/tag/${FF_RELEASE}
+            (LGPL build; build scripts and bundled library versions:
+            https://github.com/BtbN/FFmpeg-Builds)
+          - License: GNU LGPL v3 (bin/ffmpeg/LICENSE.txt)
+          - Source code: attached to this release as ffmpeg-source-${FF_DESCRIBE}.tar.gz,
+            also at https://github.com/FFmpeg/FFmpeg/tree/${FF_SHA}
+          - FFmpeg is a trademark of Fabrice Bellard. https://ffmpeg.org/
+
+          ## Gifsicle (bin/gifsicle/)
+          - Version: ${GIFSICLE_VERSION}, Windows build from https://eternallybored.org/misc/gifsicle/
+          - Copyright (C) 1997-2025 Eddie Kohler
+          - License: GNU GPL v2 only (bin/gifsicle/COPYING)
+          - Source code: attached to this release as gifsicle-${GIFSICLE_VERSION}.tar.gz,
+            also at https://www.lcdf.org/gifsicle/
+
+          ## Python (bin/python/)
+          - Version: ${PYTHON_VERSION}, embeddable package from https://www.python.org/
+          - License: Python Software Foundation License (bin/python/LICENSE.txt)
+          EOF
+          sed -i 's/^          //' "$P/THIRD-PARTY-NOTICES.md"
+          echo "PKG=$PKG" >> "$GITHUB_ENV"
+
+      - name: Smoke test with bundled tools only
+        run: |
+          set -euo pipefail
+          P="pkg/$PKG"
+          "$P/bin/ffmpeg/ffmpeg.exe" -v error -f lavfi -i testsrc2=size=640x360:rate=60:duration=2 test.mp4
+          PATH="/usr/bin" "$P/bin/python/python.exe" "$P/make_gif.py" test.mp4 -o test.gif
+          "$P/bin/python/python.exe" - <<'EOF'
+          import sys
+          sys.path.insert(0, "pkg/" + __import__("os").environ["PKG"])
+          import make_gif as m
+          from pathlib import Path
+          info = m.probe(Path("test.gif"))
+          print(info)
+          assert max(info["width"], info["height"]) <= 300, "too large"
+          assert abs(info["duration"] - 2) < 0.05, "wrong duration"
+          assert m.local_palette_count(Path("test.gif")) == 0, "per-frame palettes"
+          print("smoke test OK")
+          EOF
+
+      - name: Zip and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          (cd pkg && 7z a -tzip -mx=9 "../out/$PKG.zip" "$PKG" > /dev/null)
+          ls -la out
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" out/* --clobber
+          else
+            cat > notes.md <<EOF
+          Windows package with everything included: Python ${PYTHON_VERSION}, FFmpeg ${FF_DESCRIBE} and Gifsicle ${GIFSICLE_VERSION}.
+          Download **${PKG}.zip**, extract it, and drag a clip onto \`Make GIF.bat\`.
+
+          Source code for the bundled FFmpeg and Gifsicle is attached as required by their licenses; see THIRD-PARTY-NOTICES.md inside the zip.
+          EOF
+            sed -i 's/^          //' notes.md
+            gh release create "$TAG" out/* --title "$TAG" --notes-file notes.md
+          fi

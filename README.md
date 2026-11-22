@@ -21,7 +21,13 @@ clip.mp4: 1280x720 @ 60fps -> GIF @ 50fps, 256 colours, dither none
   -> clip.gif  300x169, 10.00s, 11.86 MB
 ```
 
-## Requirements
+## Download (Windows)
+
+Grab `teamspeak-gif-maker-<version>-win64.zip` from the [latest release](../../releases/latest), extract it anywhere, and drag a clip onto `Make GIF.bat`. Python, ffmpeg and gifsicle are all included; nothing else to install.
+
+## Running from source
+
+Requirements:
 
 - **Python 3.10+**
 - **ffmpeg** and **ffprobe**: [ffmpeg.org/download](https://ffmpeg.org/download.html) (Windows builds: [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) or [BtbN](https://github.com/BtbN/FFmpeg-Builds/releases)), or `winget install Gyan.FFmpeg`
@@ -98,11 +104,12 @@ Design notes, all based on testing against real TeamSpeak 6 clients:
 
 This project is licensed under [GPL-3.0-or-later](LICENSE).
 
-ffmpeg and gifsicle are **not included**. They are separate programs that the script runs from the command line, under their own licenses:
+ffmpeg and gifsicle are separate programs that the script runs from the command line. They are not part of this repository and keep their own licenses:
 
-- **ffmpeg**: [LGPL-2.1-or-later](https://github.com/FFmpeg/FFmpeg/blob/master/LICENSE.md), or GPL-2.0-or-later / GPL-3.0 depending on how a build was configured (most Windows builds are GPL).
+- **ffmpeg**: [LGPL-2.1-or-later](https://github.com/FFmpeg/FFmpeg/blob/master/LICENSE.md), or GPL depending on how a build was configured. The release zip bundles an LGPL build.
 - **gifsicle**: [GPL-2.0-only](https://github.com/kohler/gifsicle/blob/master/COPYING), © Eddie Kohler.
+- **Python** (release zip only): [PSF License](https://docs.python.org/3/license.html).
 
-If you redistribute this tool *together with* ffmpeg or gifsicle binaries, you must follow their licenses for those binaries, e.g. include their license texts and provide or point to the matching source code.
+The Windows release zip includes each program's license text and a `THIRD-PARTY-NOTICES.md` with exact versions. The matching ffmpeg and gifsicle source code is attached to every release. The zip is assembled by [`.github/workflows/release.yml`](.github/workflows/release.yml). If you redistribute these binaries yourself, you must follow their licenses too.
 
 Not affiliated with or endorsed by TeamSpeak Systems GmbH. TeamSpeak is a trademark of its respective owner.
