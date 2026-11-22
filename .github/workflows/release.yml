@@ -129,6 +129,8 @@ jobs:
           echo "PKG=$PKG" >> "$GITHUB_ENV"
 
       - name: Smoke test with bundled tools only
+        env:
+          PYTHONDONTWRITEBYTECODE: "1" # keep __pycache__ out of the package
         run: |
           set -euo pipefail
           P="pkg/$PKG"
