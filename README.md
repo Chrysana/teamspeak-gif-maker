@@ -42,7 +42,7 @@ The script looks for the tools in this order:
 
 ## Usage
 
-**Drag and drop (Windows):** drop one or more videos or GIFs onto `Make GIF.bat`. Each GIF is saved next to its source. GIF inputs are saved as `name_ts.gif`, so the original is never overwritten.
+**Drag and drop (Windows):** drop one or more videos or GIFs onto `Make GIF.bat`. Each GIF is saved next to its source as `name_<date>_<time>.gif` (e.g. `clip_2026-11-22_174512.gif`), so existing files, including the source, are never overwritten.
 
 **Command line:**
 

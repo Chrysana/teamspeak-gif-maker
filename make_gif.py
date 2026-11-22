@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import datetime
 from fractions import Fraction
 from pathlib import Path
 
@@ -145,6 +146,17 @@ def build_filter(fps: float, size: int, square: bool, colors: int, dither: str,
     return ",".join(parts)
 
 
+def default_output(src: Path) -> Path:
+    """<name>_<date>_<time>.gif next to the source; never an existing file."""
+    stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    out = src.with_name(f"{src.stem}_{stamp}.gif")
+    n = 2
+    while out.exists():
+        out = src.with_name(f"{src.stem}_{stamp}-{n}.gif")
+        n += 1
+    return out
+
+
 def convert(src: Path, args) -> Path:
     if not src.is_file():
         raise FileNotFoundError("file not found")
@@ -160,10 +172,9 @@ def convert(src: Path, args) -> Path:
             fps = MAX_GIF_FPS
         else:
             print(f"  note: source is {info['fps']:g}fps, so --faux60 has no effect")
-    out = Path(args.output) if args.output else src.with_suffix(".gif")
+    out = Path(args.output) if args.output else default_output(src)
     if out.resolve() == src.resolve():
-        # Input is already a GIF: never overwrite the file we're reading from.
-        out = src.with_name(f"{src.stem}_ts.gif")
+        raise ValueError("output path is the input file; choose a different --output")
 
     print(f"{src.name}: {info['width']}x{info['height']} @ {info['fps']:g}fps"
           f" -> GIF @ {fps:g}fps, {args.colors} colours, dither {args.dither}"
@@ -255,7 +266,8 @@ def interactive(args) -> None:
 def main() -> int:
     p = argparse.ArgumentParser(description="Make TeamSpeak avatar GIFs from video clips or GIFs.")
     p.add_argument("inputs", nargs="+", type=Path, help="video or GIF file(s)")
-    p.add_argument("-o", "--output", help="output path (single input only; default: next to source)")
+    p.add_argument("-o", "--output", help="output path (single input only; default: <name>_<date>_<time>.gif"
+                        " next to the source)")
     p.add_argument("-p", "--preset", choices=PRESETS, default="standard",
                    help="high (256 colours + light dither), standard (256, default),"
                         " small (128 + light lossy), smallest (small, max 30fps)")
