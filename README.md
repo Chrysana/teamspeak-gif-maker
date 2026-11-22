@@ -94,7 +94,7 @@ Design notes, all based on testing against real TeamSpeak 6 clients:
 
 - **TeamSpeak 6 rejects GIFs with per-frame colour tables** and reports "invalid size". Every frame must use the single global palette. This rules out [gifski](https://gif.ski/), which otherwise produces excellent GIFs but always writes per-frame palettes. The script checks its output and warns if any per-frame tables appear.
 - **Playback speed matches the source.** GIF frame delays are stored in 1/100 s, so 50 fps is the fastest rate that can be represented exactly. Faster sources are resampled to 50 fps rather than kept frame-for-frame, which would make the GIF play slower than the source.
-- **`--force60` is opt-in.** 60 fps can be averaged by alternating 2/100 s and 1/100 s delays. The timing is correct, but browsers and many viewers slow 1/100 s frames down to about 10/100 s, so it can stutter. Use it only if it plays well wherever the GIF will be shown.
+- **`--force60` is opt-in.** 60 fps can be averaged by alternating 2/100 s and 1/100 s delays. The timing is correct, but browsers and many viewers slow 1/100 s frames down to about 10/100 s, so it can stutter. **TeamSpeak 6 plays these GIFs very slowly**, so don't use it for avatars; it's kept for other viewers that honour short delays.
 - **Scaling happens before colour reduction.** Resizing an already-quantised GIF re-dithers it and loses quality.
 - **Heavy `--lossy` is avoided.** gifsicle's lossy mode at high levels causes obvious noise and streaks; only a light level is used, and only in the small presets.
 

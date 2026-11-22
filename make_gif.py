@@ -154,8 +154,8 @@ def convert(src: Path, args) -> Path:
           f" -> GIF @ {fps:g}fps, {args.colors} colours, dither {args.dither}"
           + (f", lossy {args.lossy}" if args.lossy else ""))
     if fps > MAX_GIF_FPS:
-        print("  note: --force60 uses 1/100s frame delays, which many viewers slow down;"
-              " if it stutters, drop --force60")
+        print("  note: --force60 uses 1/100s frame delays, which many viewers slow down"
+              " (TeamSpeak 6 plays them very slowly)")
 
     with tempfile.TemporaryDirectory() as tmp:
         raw = Path(tmp) / "raw.gif"
@@ -251,7 +251,8 @@ def main() -> int:
                         " or 30 for the smallest preset)")
     p.add_argument("--force60", action="store_true",
                    help="non-standard: allow up to 60fps using mixed 1/100s and 2/100s frame"
-                        " delays. Many viewers slow 1/100s frames down, so it may stutter")
+                        " delays. Many viewers slow 1/100s frames down; TeamSpeak 6 plays"
+                        " these GIFs very slowly")
     p.add_argument("--square", action="store_true", help="center-crop to a square before scaling")
     p.add_argument("--start", help="start time, e.g. 3.5 or 00:00:03.5")
     p.add_argument("--end", help="end time (in source timeline)")
